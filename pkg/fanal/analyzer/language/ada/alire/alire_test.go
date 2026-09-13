@@ -134,7 +134,7 @@ func TestProjectPairing(t *testing.T) {
 	require.Len(t, result.Applications, 2)
 	first, second := result.Applications[0], result.Applications[1]
 	assert.NotEqual(t, first.Packages[0].ID, second.Packages[0].ID, "root locations distinguish identities")
-	assert.NotEqual(t, first.Packages[1].ID, second.Packages[1].ID, "different release sources distinguish identities")
+	assert.Equal(t, first.Packages[1].ID, second.Packages[1].ID, "private file origins are excluded from identity")
 	delete(files, "nested/resolved/alire.toml")
 	result, warnings = analyze(t, files)
 	assert.Len(t, result.Applications, 1, "never borrow another project's root")
@@ -172,6 +172,29 @@ func TestScanBoundary(t *testing.T) {
 	require.Len(t, result.Applications, 1)
 	assert.Len(t, result.Applications[0].Packages, 1)
 	assert.Contains(t, warnings, "manifest is unavailable")
+}
+
+func TestMetadataSizeLimit(t *testing.T) {
+	for _, tt := range []struct {
+		name, file   string
+		applications int
+	}{
+		{name: "manifest", file: "resolved/alire.toml"},
+		{name: "lockfile", file: "resolved/alire/alire.lock", applications: 1},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			files := fixture(t, "resolved")
+			files[tt.file].Data = append(files[tt.file].Data, bytes.Repeat([]byte{'#'}, maxALIREMetadataSize+1)...)
+
+			result, warnings := analyze(t, files)
+			assert.Len(t, result.Applications, tt.applications)
+			assert.Contains(t, warnings, "read limit exceeded")
+			if tt.applications > 0 {
+				assert.Len(t, result.Applications[0].Packages, 1)
+				assert.Equal(t, types.RelationshipRoot, result.Applications[0].Packages[0].Relationship)
+			}
+		})
+	}
 }
 
 func TestProjectDirectoryNamedAlire(t *testing.T) {

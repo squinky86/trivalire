@@ -40,15 +40,17 @@ For supported complete resolutions, the inventory includes:
 - Version pins and relative local overrides with manifests available inside the
   scanned artifact. Local overrides can have `pinned=false` and ignore the
   declared version range. Their versions describe the current linked manifests.
-- Static source-origin evidence, with credentials and query strings removed from
-  exported URLs. Local host paths are not exported as URLs.
+- Static source-origin evidence, with credentials, query strings, and fragments
+  excluded from exported URLs and package identity. Local host paths are also
+  excluded from URLs and identity.
 
 Simple ALIRE version constraints are supported: `*`, exact versions, `=`, `/=`,
 `>`, `>=`, `<`, `<=`, `^`, and `~`. ALIRE's caret keeps the same major version,
 including for `0.x`. Compound version sets, conditional dependency tables,
 external/provided crates, Git pins, pins inside dependency manifests, absolute
 local pins, and overrides without an in-scope manifest are unsupported.
-Local pins cannot follow symlinks or escape the scanned artifact.
+Local pins cannot follow symlinks or escape the scanned artifact. Individual
+manifests and resolution files are limited to 10 MiB.
 
 ## Incomplete inventory
 
@@ -71,11 +73,13 @@ inputs built a particular binary or that linked sources have remained unchanged.
 The proposed identity uses `pkg:generic/alire/<name>@<version>` with an
 `alire_source` qualifier. This is a Trivy inventory convention, **not an official
 ALIRE PURL type or a crates.io identity**. The qualifier is a SHA-256 digest of
-the recorded source locator/metadata, or the artifact-relative manifest location
-for a root/local override. It distinguishes sources without exporting local host
-paths; it is not a source-content checksum or an integrity guarantee. Moving a
-local project can change its identity. The resolution does not identify the
-supplying index, so community/private index provenance cannot be established.
+non-sensitive recorded source metadata, or the artifact-relative manifest
+location for a root/local override. URL credentials, queries, fragments, and
+local host paths are excluded before hashing. The qualifier is not a
+source-content checksum or integrity guarantee, and sources that differ only in
+excluded data can share an identity. Moving a local project can change its
+identity. The resolution does not identify the supplying index, so
+community/private index provenance cannot be established.
 
 CycloneDX and SPDX JSON read/re-export preserve supported inventory and dependency
 edges. The native JSON intermediate used by `trivy convert` also retains ALIRE

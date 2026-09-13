@@ -125,12 +125,37 @@ func TestMatchConstraint(t *testing.T) {
 	}
 }
 
+func TestCrateName(t *testing.T) {
+	for _, name := range []string{"abc", "1ab", strings.Repeat("a", 64)} {
+		assert.True(t, crateName.MatchString(name), name)
+	}
+	for _, name := range []string{"ab", "_abc", "Abc", "a-b", strings.Repeat("a", 65)} {
+		assert.False(t, crateName.MatchString(name), name)
+	}
+}
+
+func TestLinkedResolverReturnsNil(t *testing.T) {
+	data, err := os.ReadFile("testdata/linked.lock")
+	require.NoError(t, err)
+	root := &Manifest{
+		Name: "linked_app", Version: "1.0.0",
+		Dependencies: []map[string]any{{"direct_dep": "^1.0.0"}},
+		Pins:         []map[string]any{{"direct_dep": map[string]any{"path": "../local_dep"}}},
+	}
+	parser := NewProjectParser(root, "linked/alire.toml", func(string) (*Manifest, string, error) {
+		return nil, "", nil
+	})
+	_, _, err = parser.Parse(t.Context(), strings.NewReader(string(data)))
+	require.ErrorContains(t, err, "linked manifest is unavailable")
+}
+
 func TestSourceIdentity(t *testing.T) {
-	m := Manifest{Name: "private_dep", Version: "1.0.0+build.1", Origin: map[string]any{"url": "https://user:secret@example.invalid/a.tar.gz?token=secret"}}
+	m := Manifest{Name: "private_dep", Version: "1.0.0+build.1", Origin: map[string]any{"url": "https://user:secret@example.invalid/a.tar.gz?token=secret#fragment-secret"}}
 	one, err := releasePackage(m)
 	require.NoError(t, err)
 	assert.NotContains(t, one.ID, "secret")
 	assert.NotContains(t, one.ID, "user")
+	assert.NotContains(t, one.ID, "fragment-secret")
 	assert.Equal(t, "https://example.invalid/a.tar.gz", one.Identifier.PURL.Qualifiers.Map()["download_url"])
 	m.Origin["url"] = "https://example.invalid/another.tar.gz"
 	two, err := releasePackage(m)
@@ -139,12 +164,16 @@ func TestSourceIdentity(t *testing.T) {
 	m.Origin["url"] = "https://example.invalid/a.tar.gz?source=another"
 	query, err := releasePackage(m)
 	require.NoError(t, err)
-	assert.NotEqual(t, one.ID, query.ID, "query-selected sources must not collapse")
+	assert.Equal(t, one.ID, query.ID, "query values may contain secrets and must not affect deterministic identity")
 	assert.NotContains(t, query.ID, "source=another")
 	m.Origin["url"] = "file:/private/host/cache/source"
 	local, err := releasePackage(m)
 	require.NoError(t, err)
 	assert.NotContains(t, local.ID, "/private/")
 	assert.Empty(t, local.ExternalReferences)
+	m.Origin["url"] = "file:/another/private/source"
+	otherLocal, err := releasePackage(m)
+	require.NoError(t, err)
+	assert.Equal(t, local.ID, otherLocal.ID, "private host paths must not affect deterministic identity")
 	assert.NotEqual(t, ManifestPackage(m, "one/alire.toml").ID, ManifestPackage(m, "two/alire.toml").ID)
 }

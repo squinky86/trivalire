@@ -51,11 +51,18 @@ func releasePackage(m Manifest) (ftypes.Package, error) {
 	if u.Scheme != "file" && u.Hostname() == "" {
 		return ftypes.Package{}, xerrors.New("release origin has no host")
 	}
-	// Credentials are not part of source identity. Query strings can select
-	// different source archives, so retain them only inside the opaque digest.
+	// Credentials, queries, and fragments may contain secrets. Exclude them
+	// from both exported metadata and the deterministic source digest: hashing
+	// secret material would still expose a verifier for offline guessing.
 	u.User = nil
-	identityURL := u.String()
 	u.RawQuery, u.Fragment = "", ""
+	publicURL := u.String()
+	identityURL := publicURL
+	if u.Scheme == "file" {
+		// A deterministic digest of a private host path has the same verifier
+		// problem. Other origin evidence (for example, hashes) remains below.
+		identityURL = "file:"
+	}
 	origin := make(map[string]any, len(m.Origin))
 	for key, value := range m.Origin {
 		switch key {
@@ -93,9 +100,9 @@ func releasePackage(m Manifest) (ftypes.Package, error) {
 			typ = ftypes.RefVCS
 			qualifier = "vcs_url"
 		}
-		pkg.ExternalReferences = []ftypes.ExternalRef{{Type: typ, URL: u.String()}}
+		pkg.ExternalReferences = []ftypes.ExternalRef{{Type: typ, URL: publicURL}}
 		pkg.Identifier.PURL.Qualifiers = append(pkg.Identifier.PURL.Qualifiers,
-			packageurl.Qualifier{Key: qualifier, Value: u.String()})
+			packageurl.Qualifier{Key: qualifier, Value: publicURL})
 		pkg.ID = pkg.Identifier.PURL.String()
 	}
 	return pkg, nil

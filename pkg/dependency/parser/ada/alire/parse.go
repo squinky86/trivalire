@@ -242,6 +242,9 @@ func (p *Parser) linkedPackage(s state) (ftypes.Package, *Manifest, error) {
 	if err != nil {
 		return ftypes.Package{}, nil, err
 	}
+	if m == nil {
+		return ftypes.Package{}, nil, xerrors.New("linked manifest is unavailable")
+	}
 	return ManifestPackage(*m, manifestPath), m, nil
 }
 

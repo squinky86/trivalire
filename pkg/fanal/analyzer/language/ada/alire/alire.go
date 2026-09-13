@@ -17,13 +17,18 @@ import (
 	"github.com/aquasecurity/trivy/pkg/fanal/analyzer/language"
 	"github.com/aquasecurity/trivy/pkg/fanal/types"
 	"github.com/aquasecurity/trivy/pkg/log"
+	"github.com/aquasecurity/trivy/pkg/set"
+	xio "github.com/aquasecurity/trivy/pkg/x/io"
 )
 
 func init() {
 	analyzer.RegisterPostAnalyzer(analyzer.TypeAlire, newAlireAnalyzer)
 }
 
-const version = 1
+const (
+	version              = 1
+	maxALIREMetadataSize = 10 << 20 // 10 MiB
+)
 
 type alireAnalyzer struct {
 	logger *log.Logger
@@ -71,7 +76,7 @@ func (a *alireAnalyzer) PostAnalyze(ctx context.Context, input analyzer.PostAnal
 	for _, lockPath := range locks {
 		manifestPath := path.Join(path.Dir(path.Dir(lockPath)), types.AlireToml)
 		processed[manifestPath] = true
-		root, err := readManifest(files, manifestPath)
+		root, err := readManifest(input.FS, files, manifestPath)
 		if err != nil {
 			a.incomplete(ctx, lockPath, err)
 			continue
@@ -82,14 +87,20 @@ func (a *alireAnalyzer) PostAnalyze(ctx context.Context, input analyzer.PostAnal
 			if err != nil {
 				return nil, "", err
 			}
-			m, err := readManifest(files, manifest)
+			m, err := readManifest(input.FS, files, manifest)
 			if err == nil {
 				linkedManifests = append(linkedManifests, manifest)
 			}
 			return m, manifest, err
 		}
+		lock, err := readFile(input.FS, files, lockPath)
+		if err != nil {
+			a.incomplete(ctx, lockPath, err)
+			result.Applications = append(result.Applications, *rootApplication(root, manifestPath))
+			continue
+		}
 		parser := alire.NewProjectParser(root, manifestPath, resolveLink)
-		app, err := language.Parse(ctx, types.Alire, lockPath, bytes.NewReader(files[lockPath]), parser)
+		app, err := language.Parse(ctx, types.Alire, lockPath, bytes.NewReader(lock), parser)
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
@@ -112,7 +123,7 @@ func (a *alireAnalyzer) PostAnalyze(ctx context.Context, input analyzer.PostAnal
 		if processed[manifestPath] || linked[manifestPath] {
 			continue
 		}
-		root, err := readManifest(files, manifestPath)
+		root, err := readManifest(input.FS, files, manifestPath)
 		if err != nil {
 			a.incomplete(ctx, manifestPath, err)
 			continue
@@ -129,11 +140,11 @@ func (a *alireAnalyzer) PostAnalyze(ctx context.Context, input analyzer.PostAnal
 	return result, nil
 }
 
-func (a *alireAnalyzer) collectFiles(ctx context.Context, fsys fs.FS) (map[string][]byte, []string, []string, error) {
+func (a *alireAnalyzer) collectFiles(ctx context.Context, fsys fs.FS) (set.Set[string], []string, []string, error) {
 	// Only regular files collected from the artifact can be used as evidence.
 	// Keeping this allowlist also prevents a local pin from following a symlink
 	// through an FS implementation that otherwise permits it.
-	files := make(map[string][]byte)
+	files := set.New[string]()
 	var manifests, locks []string
 	err := fs.WalkDir(fsys, ".", func(name string, entry fs.DirEntry, err error) error {
 		if err != nil {
@@ -145,11 +156,7 @@ func (a *alireAnalyzer) collectFiles(ctx context.Context, fsys fs.FS) (map[strin
 		if !entry.Type().IsRegular() || !a.Required(name, nil) {
 			return nil
 		}
-		data, err := fs.ReadFile(fsys, name)
-		if err != nil {
-			return err
-		}
-		files[name] = data
+		files.Append(name)
 		if path.Base(name) == types.AlireToml {
 			manifests = append(manifests, name)
 		} else {
@@ -171,12 +178,34 @@ func rootApplication(root *alire.Manifest, manifestPath string) *types.Applicati
 	return &types.Application{Type: types.Alire, FilePath: manifestPath, Packages: types.Packages{pkg}}
 }
 
-func readManifest(files map[string][]byte, name string) (*alire.Manifest, error) {
-	data, ok := files[name]
-	if !ok {
+func readManifest(fsys fs.FS, files set.Set[string], name string) (*alire.Manifest, error) {
+	if !files.Contains(name) {
 		return nil, xerrors.New("manifest is unavailable inside the scanned artifact")
 	}
+	data, err := readFile(fsys, files, name)
+	if err != nil {
+		return nil, err
+	}
 	return alire.ParseManifest(bytes.NewReader(data))
+}
+
+func readFile(fsys fs.FS, files set.Set[string], name string) ([]byte, error) {
+	if !files.Contains(name) {
+		return nil, xerrors.New("metadata is unavailable inside the scanned artifact")
+	}
+	f, err := fsys.Open(name)
+	if err != nil {
+		return nil, xerrors.Errorf("metadata open error: %w", err)
+	}
+	data, readErr := xio.ReadAllWithLimit(f, maxALIREMetadataSize)
+	closeErr := f.Close()
+	if readErr != nil {
+		return nil, xerrors.Errorf("metadata read error: %w", readErr)
+	}
+	if closeErr != nil {
+		return nil, xerrors.Errorf("metadata close error: %w", closeErr)
+	}
+	return data, nil
 }
 
 func linkedPath(rootManifest, link string) (string, error) {

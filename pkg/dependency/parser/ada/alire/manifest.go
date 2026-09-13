@@ -11,7 +11,7 @@ import (
 	"golang.org/x/xerrors"
 )
 
-var crateName = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
+var crateName = regexp.MustCompile(`^[a-z0-9][a-z0-9_]{2,63}$`)
 
 // Manifest contains inventory evidence, not instructions to execute a project.
 type Manifest struct {
