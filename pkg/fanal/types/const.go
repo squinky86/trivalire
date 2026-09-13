@@ -100,6 +100,7 @@ var OSTypeAliases = map[OSType]OSType{
 
 // Programming language dependencies
 const (
+	Alire          LangType = "alire"
 	Bundler        LangType = "bundler"
 	GemSpec        LangType = "gemspec"
 	Cargo          LangType = "cargo"
@@ -201,6 +202,9 @@ const (
 
 // Language-specific file names
 const (
+	AlireToml = "alire.toml"
+	AlireLock = "alire.lock"
+
 	NuGetPkgsLock   = "packages.lock.json"
 	NuGetPkgsConfig = "packages.config"
 

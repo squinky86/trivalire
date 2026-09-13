@@ -46,6 +46,9 @@ const (
 	// Programming Language Package
 	// ============================
 
+	// Ada
+	TypeAlire Type = "alire"
+
 	// Ruby
 	TypeBundler Type = "bundler"
 	TypeGemSpec Type = "gemspec"
@@ -196,6 +199,7 @@ var (
 
 	// TypeLanguages has all language analyzers
 	TypeLanguages = []Type{
+		TypeAlire,
 		TypeBundler,
 		TypeGemSpec,
 		TypeCargo,
@@ -236,6 +240,7 @@ var (
 
 	// TypeLockfiles has all lock file analyzers
 	TypeLockfiles = []Type{
+		TypeAlire,
 		TypeBundler,
 		TypeNpmPkgLock,
 		TypeYarn,

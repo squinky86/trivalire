@@ -93,6 +93,7 @@ nav:
               - Google Distroless (Images): guide/coverage/os/google-distroless.md
           - Language:
               - Overview: guide/coverage/language/index.md
+              - Ada / SPARK: guide/coverage/language/ada.md
               - C/C++: guide/coverage/language/c.md
               - Dart: guide/coverage/language/dart.md
               - .NET: guide/coverage/language/dotnet.md

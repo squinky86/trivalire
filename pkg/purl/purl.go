@@ -74,6 +74,10 @@ func New(t ftypes.TargetType, metadata types.Metadata, pkg ftypes.Package) (*Pac
 	subpath := ""
 
 	switch ptype {
+	case packageurl.TypeGeneric:
+		if t == ftypes.Alire {
+			namespace = "alire"
+		}
 	case packageurl.TypeRPM:
 		ns, qs := parseRPM(metadata.OS, pkg.Modularitylabel)
 		namespace = ns
@@ -148,6 +152,11 @@ func (p *PackageURL) Unwrap() *packageurl.PackageURL {
 // nolint: gocyclo
 func (p *PackageURL) LangType() ftypes.LangType {
 	switch p.Type {
+	case packageurl.TypeGeneric:
+		if p.Namespace == "alire" {
+			return ftypes.Alire
+		}
+		return TypeUnknown
 	case packageurl.TypeComposer:
 		return ftypes.Composer
 	case packageurl.TypeMaven:
@@ -213,7 +222,7 @@ func (p *PackageURL) Class() types.ResultClass {
 
 func (p *PackageURL) Package() *ftypes.Package {
 	pkgName := p.Name
-	if p.Namespace != "" && p.Class() != types.ClassOSPkg {
+	if p.Namespace != "" && p.Class() != types.ClassOSPkg && p.LangType() != ftypes.Alire {
 		if p.Type == packageurl.TypeMaven || p.Type == packageurl.TypeGradle {
 			// Maven and Gradle packages separate ":"
 			// e.g. org.springframework:spring-core
@@ -238,6 +247,9 @@ func (p *PackageURL) Package() *ftypes.Package {
 		Identifier: ftypes.PkgIdentifier{
 			PURL: p.Unwrap(),
 		},
+	}
+	if p.LangType() == ftypes.Alire {
+		pkg.ID = p.String()
 	}
 	for _, q := range p.Qualifiers {
 		switch q.Key {
@@ -451,6 +463,8 @@ func parseJulia(pkgName, pkgUUID string) (string, string, packageurl.Qualifiers)
 // nolint: gocyclo
 func purlType(t ftypes.TargetType) string {
 	switch t {
+	case ftypes.Alire:
+		return packageurl.TypeGeneric
 	case ftypes.Jar, ftypes.Pom, ftypes.Gradle, ftypes.Sbt:
 		return packageurl.TypeMaven
 	case ftypes.Bundler, ftypes.GemSpec:

@@ -19,6 +19,11 @@ $ trivy image --format spdx-json --output result.json alpine:3.15
 $ trivy fs --format cyclonedx --output result.json /app/myproject
 ```
 
+[ALIRE-managed Ada/SPARK projects](../coverage/language/ada.md) support these
+formats through filesystem and repository scanning. ALIRE inventory does not
+include vulnerability matching; retain any incomplete-inventory warnings with
+the generated SBOM.
+
 <details>
 <summary>Result</summary>
 

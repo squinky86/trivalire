@@ -1,0 +1,12 @@
+# THIS FILE IS GENERATED. DO NOT EDIT.
+
+[solution]
+[solution.context]
+solved = true
+[[solution.state]]
+crate = "missing_dep"
+fulfilment = "missed"
+pinned = false
+reason = "unknown"
+transitivity = "direct"
+versions = "^9.0.0"

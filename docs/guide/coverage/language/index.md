@@ -18,6 +18,7 @@ On the other hand, when the target is a post-build artifact, like a container im
 
 | Language             | File                                                                                       | Image[^4] | Rootfs[^5] | Filesystem[^6] | Repository[^7] |
 |----------------------|--------------------------------------------------------------------------------------------|:---------:|:----------:|:--------------:|:--------------:|
+| [Ada / SPARK](ada.md) | alire.toml and alire/alire.lock                                                             |     -     |     -      |       ✅        |       ✅        |
 | [Ruby](ruby.md)      | Gemfile.lock                                                                               |     -     |     -      |       ✅        |       ✅        |
 |                      | gemspec                                                                                    |     ✅     |     ✅      |       -        |       -        |
 | [Python](python.md)  | Pipfile.lock                                                                               |     -     |     -      |       ✅        |       ✅        |
@@ -52,7 +53,8 @@ On the other hand, when the target is a post-build artifact, like a container im
 |                      | Package.resolved                                                                           |     -     |     -      |       ✅        |       ✅        |
 | [Julia](julia.md)    | Manifest.toml                                                                              |     ✅     |     ✅      |       ✅        |       ✅        |
 
-The path of these files does not matter.
+The path of these files does not matter unless the language page specifies an
+association rule, such as ALIRE's manifest and resolution layout.
 
 Example: [Dockerfile](https://github.com/aquasecurity/trivy-ci-test/blob/main/Dockerfile)
 

@@ -204,7 +204,9 @@ func (m *Decoder) decodePackage(ctx context.Context, c *core.Component) (*ftypes
 		return nil, ErrUnsupportedType
 	}
 	pkg.Name = m.pkgName(pkg, c)
-	pkg.ID = dependency.ID(p.LangType(), pkg.Name, p.Version) // Re-generate ID with the updated name
+	if p.LangType() != ftypes.Alire {
+		pkg.ID = dependency.ID(p.LangType(), pkg.Name, p.Version) // Re-generate ID with the updated name
+	}
 
 	if err := fillPkgFieldsFromComponentProps(c.Properties, pkg); err != nil {
 		return nil, xerrors.Errorf("failed to fill package properties: %w", err)
@@ -404,6 +406,10 @@ func fillPkgFieldsFromComponentProps(props []core.Property, pkg *ftypes.Package)
 		switch prop.Name {
 		case core.PropertyPkgID:
 			pkg.ID = prop.Value
+		case core.PropertyPkgRelationship:
+			if err := fillAlireRelationship(pkg, prop.Value); err != nil {
+				return err
+			}
 		case core.PropertyFilePath:
 			pkg.FilePath = prop.Value
 		case core.PropertySrcName:
@@ -434,5 +440,17 @@ func fillPkgFieldsFromComponentProps(props []core.Property, pkg *ftypes.Package)
 	if len(buildInfo.ContentSets) > 0 || buildInfo.Nvr != "" {
 		pkg.BuildInfo = buildInfo
 	}
+	return nil
+}
+
+func fillAlireRelationship(pkg *ftypes.Package, value string) error {
+	if pkg.Identifier.PURL == nil || (*purl.PackageURL)(pkg.Identifier.PURL).LangType() != ftypes.Alire {
+		return nil
+	}
+	var err error
+	if pkg.Relationship, err = ftypes.NewRelationship(value); err != nil {
+		return xerrors.Errorf("invalid package relationship: %w", err)
+	}
+	pkg.Indirect = pkg.Relationship == ftypes.RelationshipIndirect
 	return nil
 }

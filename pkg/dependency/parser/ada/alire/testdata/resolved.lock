@@ -1,0 +1,45 @@
+# THIS FILE IS GENERATED. DO NOT EDIT.
+
+[solution]
+[solution.context]
+solved = true
+[[solution.state]]
+crate = "direct_dep"
+fulfilment = "solved"
+pinned = false
+transitivity = "direct"
+versions = "^1.0.0"
+[solution.state.release]
+description = "Synthetic Trivy inventory fixture"
+licenses = "Apache-2.0"
+maintainers = [
+"maintainer@example.invalid",
+]
+maintainers-logins = [
+"trivy-fixture",
+]
+name = "direct_dep"
+version = "1.0.0"
+[solution.state.release.origin]
+url = "file:<FIXTURE_DIR>/sources/direct_dep"
+[[solution.state.release.depends-on]]
+leaf_dep = "^2.0.0"
+[[solution.state]]
+crate = "leaf_dep"
+fulfilment = "solved"
+pinned = false
+transitivity = "indirect"
+versions = "^2.0.0"
+[solution.state.release]
+description = "Synthetic Trivy inventory fixture"
+licenses = "Apache-2.0"
+maintainers = [
+"maintainer@example.invalid",
+]
+maintainers-logins = [
+"trivy-fixture",
+]
+name = "leaf_dep"
+version = "2.0.0"
+[solution.state.release.origin]
+url = "file:<FIXTURE_DIR>/sources/leaf_dep"

@@ -430,6 +430,14 @@ func (*Encoder) component(result types.Result, pkg ftypes.Package) *core.Compone
 		},
 	}
 
+	// Retain ALIRE root/direct/indirect roles on inventory re-import. The graph
+	// itself is still represented using the standard SBOM dependency edges.
+	if result.Type == ftypes.Alire && pkg.Relationship != ftypes.RelationshipUnknown {
+		properties = append(properties, core.Property{
+			Name: core.PropertyPkgRelationship, Value: pkg.Relationship.String(),
+		})
+	}
+
 	// Fill Red Hat specific properties
 	if pkg.BuildInfo != nil {
 		for _, cs := range pkg.BuildInfo.ContentSets {

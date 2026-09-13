@@ -38,6 +38,7 @@ const (
 
 	// Package properties
 	PropertyPkgID           = "PkgID"
+	PropertyPkgRelationship = "PkgRelationship"
 	PropertyPkgType         = "PkgType"
 	PropertySrcName         = "SrcName"
 	PropertySrcVersion      = "SrcVersion"
