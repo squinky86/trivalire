@@ -1,6 +1,6 @@
 # Python
 
-Trivy supports the following Python package managers: `pip`, `Pipenv`, `Poetry`, `uv`, and [Pixi](../others/pixi.md).
+Trivy supports the following Python package managers: `pip`, `Pipenv`, `Poetry`, `uv`, and `Pixi`.
 Trivy also supports the `pylock.toml` lock file format defined by [PEP 751](https://peps.python.org/pep-0751/).
 The following scanners are supported for package managers.
 
@@ -11,7 +11,7 @@ The following scanners are supported for package managers.
 | Poetry          |  ✓   |       ✓       |    -    |
 | uv              |  ✓   |       ✓       |    -    |
 | pylock          |  ✓   |       ✓       |    -    |
-| Pixi (PyPI)     |  ✓   |       ✓       |    ✓, when recorded |
+| Pixi (PyPI)     |  ✓   |       ✓       |    ✓    |
 
 In addition, Trivy supports these formats of Python packages: `egg`, `wheel` and `conda`.
 The following scanners are supported for Python packages.
