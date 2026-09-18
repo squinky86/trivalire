@@ -6,8 +6,8 @@ packages, reading package-manager caches, or downloading package sources.
 
 | Packages | SBOM | Vulnerability | License |
 |----------|:----:|:-------------:|:-------:|
-| Conda    | ✓    | -             | ✓, when recorded |
-| PyPI     | ✓    | ✓             | ✓, when recorded |
+| Conda    | ✓    | -             | ✓      |
+| PyPI     | ✓    | ✓             | ✓      |
 
 Lockfile scanning is enabled for **filesystem and repository** targets. Like
 other development lockfiles, it is disabled for image and rootfs targets.
