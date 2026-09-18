@@ -1204,7 +1204,11 @@ func TestEncoder_Encode(t *testing.T) {
 				BOM:           newTestBOM(t),
 			},
 			wantComponents: map[uuid.UUID]*core.Component{
-				uuid.MustParse("2ff14136-e09f-4df9-80ea-000000000001"): appComponent,
+				uuid.MustParse("2ff14136-e09f-4df9-80ea-000000000001"): func() *core.Component {
+					c := appComponent.Clone()
+					c.PkgIdentifier.BOMRef = "2ff14136-e09f-4df9-80ea-000000000001"
+					return c
+				}(),
 				uuid.MustParse("2ff14136-e09f-4df9-80ea-000000000002"): libComponent,
 			},
 			wantRels: map[uuid.UUID][]core.Relationship{
@@ -1771,4 +1775,25 @@ func newTestBOM2(t *testing.T) *core.BOM {
 	// Add empty relationship for libComponent to preserve structure for SBOM rescanning
 	bom.AddRelationship(libComp, nil, core.RelationshipDependsOn)
 	return bom
+}
+
+func TestSPDXVulnerabilityLookupWithoutBOMRefs(t *testing.T) {
+	bom := core.NewBOM(core.Options{})
+	root := &core.Component{Root: true, Name: "workspace"}
+	bom.AddComponent(root)
+	py := &core.Component{Name: "django", Version: "4.2.0", PkgIdentifier: ftypes.PkgIdentifier{PURL: packageurl.NewPackageURL("pypi", "", "django", "4.2.0", nil, "")}}
+	secondEnv := py.Clone()
+	conda := &core.Component{Name: "django", Version: "4.2.0", PkgIdentifier: ftypes.PkgIdentifier{PURL: packageurl.NewPackageURL("conda", "", "django", "4.2.0", nil, "")}}
+	for _, c := range []*core.Component{py, secondEnv, conda} {
+		bom.AddComponent(c)
+		bom.AddRelationship(root, c, core.RelationshipContains)
+	}
+	report := types.Report{BOM: bom, Results: types.Results{{Vulnerabilities: []types.DetectedVulnerability{{VulnerabilityID: "CVE-2023-36053", PkgIdentifier: py.PkgIdentifier}}}}}
+	encoded, err := sbomio.NewEncoder(sbomio.WithBOMRef()).Encode(report)
+	require.NoError(t, err)
+	assert.Len(t, encoded.Vulnerabilities(), 2)
+	assert.Len(t, encoded.Vulnerabilities()[py.ID()], 1)
+	assert.Len(t, encoded.Vulnerabilities()[secondEnv.ID()], 1)
+	assert.Empty(t, encoded.Vulnerabilities()[conda.ID()])
+	assert.Empty(t, bom.Vulnerabilities(), "encoding must not mutate the source BOM")
 }

@@ -86,6 +86,7 @@ const (
 	TypePip          Type = "pip"
 	TypePipenv       Type = "pipenv"
 	TypePoetry       Type = "poetry"
+	TypePixi         Type = "pixi"
 	TypeUv           Type = "uv"
 	TypePyLock       Type = "pylock"
 
@@ -220,6 +221,7 @@ var (
 		TypePip,
 		TypePipenv,
 		TypePoetry,
+		TypePixi,
 		TypeUv,
 		TypePyLock,
 		TypeGoBinary,
@@ -244,6 +246,7 @@ var (
 		TypePip,
 		TypePipenv,
 		TypePoetry,
+		TypePixi,
 		TypeUv,
 		TypePyLock,
 		TypeGoMod,

@@ -1,5 +1,7 @@
 # Conda
 
+For mixed Conda/PyPI `pixi.lock` inventories, see [Pixi](pixi.md).
+
 Trivy supports the following scanners for Conda packages.
 
 |    Scanner    | Supported |

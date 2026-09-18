@@ -3,6 +3,7 @@ package library
 import (
 	"context"
 
+	"github.com/package-url/packageurl-go"
 	"golang.org/x/xerrors"
 
 	ftypes "github.com/aquasecurity/trivy/pkg/fanal/types"
@@ -12,6 +13,23 @@ import (
 
 // Detect scans language-specific packages and returns vulnerabilities.
 func Detect(ctx context.Context, libType ftypes.LangType, pkgs []ftypes.Package) ([]types.DetectedVulnerability, error) {
+	// Pixi is a mixed ecosystem. Only genuine PyPI records use the Python
+	// advisory driver; Conda names (even Python mappings) are not PyPI builds.
+	if libType == ftypes.Pixi {
+		var pythonPackages []ftypes.Package
+		condaFound := false
+		for _, pkg := range pkgs {
+			if pkg.Identifier.PURL != nil && pkg.Identifier.PURL.Type == packageurl.TypePyPi {
+				pythonPackages = append(pythonPackages, pkg)
+			} else {
+				condaFound = true
+			}
+		}
+		if condaFound {
+			log.WarnContext(ctx, "Pixi Conda packages are supported for SBOM and licenses, not vulnerability scanning")
+		}
+		libType, pkgs = ftypes.PythonPkg, pythonPackages
+	}
 	driver, ok := NewDriver(libType)
 	if !ok {
 		return nil, nil

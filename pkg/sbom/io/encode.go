@@ -5,7 +5,6 @@ import (
 	"slices"
 	"strconv"
 
-	"github.com/google/uuid"
 	"github.com/package-url/packageurl-go"
 	"github.com/samber/lo"
 	"golang.org/x/xerrors"
@@ -295,42 +294,53 @@ func (e *Encoder) encodePackages(parent *core.Component, result types.Result) {
 //  2. Library usage: When using Trivy as a library with a pre-existing custom BOM that needs
 //     to be enriched with vulnerability information
 //
-// For SBOM scanning (case 1), this approach is CycloneDX-specific
-// because: SPDX 2.3 does not include vulnerabilities in the SBOM specification.
-// Therefore, the method uses BOM-Ref for component-vulnerability lookup rather than SPDX-ID.
+// Component lookup uses CycloneDX BOM-Refs when available and PURLs for SPDX
+// input, allowing SPDX inventories to be enriched as CycloneDX vulnerability reports.
 func (e *Encoder) reuseExistingBOM(report types.Report) (*core.BOM, error) {
 	bom := report.BOM.Clone()
+	if e.bomOpts.GenerateBOMRef {
+		bom.EnsureBOMRefs()
+	}
 
-	// Create a lookup map from BOM-Ref to component for efficient vulnerability assignment
-	// BOM-Ref is used as the key because it's the standard identifier in CycloneDX format
-	// and is guaranteed to be present in components from CycloneDX SBOMs
-	components := lo.MapKeys(report.BOM.Components(), func(v *core.Component, _ uuid.UUID) string {
-		return v.PkgIdentifier.BOMRef
-	})
-
+	// CycloneDX supplies BOM-Refs. SPDX does not, so fall back to the PURL
+	// instead of allowing every empty reference to collide in the lookup map.
+	// Several components can share a PURL across environments; all represent
+	// the same package identity and receive the corresponding findings.
+	components := make(map[string][]*core.Component)
+	for _, component := range report.BOM.Components() {
+		if key := vulnerabilityComponentKey(component.PkgIdentifier); key != "" {
+			components[key] = append(components[key], component)
+		}
+	}
 	for _, result := range report.Results {
-		// Group newly detected vulnerabilities by their component's BOM-Ref
 		vulns := make(map[string][]core.Vulnerability)
 		for _, vuln := range result.Vulnerabilities {
-			vulns[vuln.PkgIdentifier.BOMRef] = append(vulns[vuln.PkgIdentifier.BOMRef], e.vulnerability(vuln))
+			key := vulnerabilityComponentKey(vuln.PkgIdentifier)
+			vulns[key] = append(vulns[key], e.vulnerability(vuln))
 		}
-
-		// Associate vulnerabilities with their corresponding components in the SBOM
-		for bomRef, componentVulns := range vulns {
-			c, ok := components[bomRef]
-			if !ok {
-				// This should never happen in proper SBOM rescanning because vulnerabilities
-				// should only be detected for components that exist in the original SBOM
-				log.Warn("Skipping vulnerabilities for component not found in SBOM",
-					log.String("bom-ref", bomRef),
-					log.Int("vulnerabilities", len(componentVulns)))
+		for key, componentVulns := range vulns {
+			matches := components[key]
+			if len(matches) == 0 {
+				log.Warn("Skipping vulnerabilities for component not found in SBOM", log.String("identifier", key), log.Int("vulnerabilities", len(componentVulns)))
 				continue
 			}
-			bom.AddVulnerabilities(c, componentVulns)
+			for _, component := range matches {
+				bom.AddVulnerabilities(component, componentVulns)
+			}
 		}
 	}
 
 	return bom, nil
+}
+
+func vulnerabilityComponentKey(id ftypes.PkgIdentifier) string {
+	if id.BOMRef != "" {
+		return "bom-ref:" + id.BOMRef
+	}
+	if id.PURL != nil {
+		return "purl:" + id.PURL.String()
+	}
+	return ""
 }
 
 func (e *Encoder) resultComponent(root *core.Component, r types.Result, osFound *ftypes.OS) *core.Component {

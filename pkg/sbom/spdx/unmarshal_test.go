@@ -401,3 +401,21 @@ func TestUnmarshaler_Unmarshal(t *testing.T) {
 		})
 	}
 }
+
+func TestUnknownLicenseIsNotALicense(t *testing.T) {
+	for _, license := range []string{"", "NONE", "NOASSERTION"} {
+		t.Run(license, func(t *testing.T) {
+			data, err := json.Marshal(map[string]any{
+				"spdxVersion": "SPDX-2.3", "SPDXID": "SPDXRef-DOCUMENT", "name": "fixture", "dataLicense": "CC0-1.0", "documentNamespace": "https://example.org/test",
+				"packages": []any{map[string]any{"name": "example", "SPDXID": "SPDXRef-example", "licenseDeclared": license}},
+			})
+			require.NoError(t, err)
+			var bom spdx.SPDX
+			require.NoError(t, json.Unmarshal(data, &bom))
+			require.Len(t, bom.Components(), 1)
+			for _, component := range bom.Components() {
+				assert.Empty(t, component.Licenses)
+			}
+		})
+	}
+}

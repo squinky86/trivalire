@@ -346,6 +346,14 @@ func (b *BOM) Components() map[uuid.UUID]*Component {
 	return b.components
 }
 
+// EnsureBOMRefs fills missing CycloneDX identifiers, including for BOMs imported
+// from SPDX. Existing references are preserved so relationships remain stable.
+func (b *BOM) EnsureBOMRefs() {
+	for _, c := range b.components {
+		c.PkgIdentifier.BOMRef = b.bomRef(c)
+	}
+}
+
 func (b *BOM) Relationships() map[uuid.UUID][]Relationship {
 	return b.relationships
 }

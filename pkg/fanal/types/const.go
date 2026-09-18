@@ -113,6 +113,7 @@ const (
 	Pip            LangType = "pip"
 	Pipenv         LangType = "pipenv"
 	Poetry         LangType = "poetry"
+	Pixi           LangType = "pixi"
 	Uv             LangType = "uv"
 	PyLock         LangType = "pylock"
 	CondaPkg       LangType = "conda-pkg"
@@ -224,6 +225,7 @@ const (
 	PipRequirements = "requirements.txt"
 	PipfileLock     = "Pipfile.lock"
 	PoetryLock      = "poetry.lock"
+	PixiLock        = "pixi.lock"
 	UvLock          = "uv.lock"
 	PyLockFile      = "pylock.toml"
 

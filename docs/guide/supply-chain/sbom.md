@@ -1,5 +1,10 @@
 # SBOM
 
+[Pixi lockfiles](../coverage/others/pixi.md) are supported in filesystem and
+repository SBOMs. Conda and PyPI identities, recorded hashes and licenses, and
+supported dependency edges survive CycloneDX/SPDX JSON re-import and conversion.
+Conda inventory does not imply Conda vulnerability coverage.
+
 ## Generating
 
 Trivy can generate the following SBOM formats.

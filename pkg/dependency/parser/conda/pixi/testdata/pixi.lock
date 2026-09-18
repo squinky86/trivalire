@@ -1,0 +1,42 @@
+version: 6
+environments:
+  default:
+    packages:
+      linux-64:
+      - conda: https://example.org/conda/linux-64/python-3.12.0-h123_0.conda
+      - conda: https://example.org/conda/noarch/typing-extensions-4.12.0-py_0.conda
+      - pypi: https://example.org/django-4.2.0.whl
+      - pypi: https://example.org/asgiref-3.8.1.whl
+      win-64:
+      - conda: https://example.org/conda/win-64/python-3.12.0-h456_0.conda
+  test:
+    packages:
+      linux-64:
+      - pypi: https://example.org/django-4.2.3.whl
+packages:
+- conda: https://example.org/conda/linux-64/python-3.12.0-h123_0.conda
+  license: Python-2.0
+  sha256: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  depends: [typing-extensions >=4, __glibc >=2.17]
+- conda: https://example.org/conda/win-64/python-3.12.0-h456_0.conda
+  license: Python-2.0
+- conda: https://example.org/conda/noarch/typing-extensions-4.12.0-py_0.conda
+  license: PSF-2.0
+  purls: [pkg:pypi/typing-extensions@4.12.0]
+- pypi: https://example.org/django-4.2.0.whl
+  name: Django
+  version: 4.2.0
+  license: BSD-3-Clause
+  sha256: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+  requires_dist: [asgiref>=3.6, typing_extensions>=4, "absent; extra == 'test'"]
+- pypi: https://example.org/asgiref-3.8.1.whl
+  name: asgiref
+  version: 3.8.1
+  license: BSD-3-Clause
+- pypi: https://example.org/django-4.2.3.whl
+  name: django
+  version: 4.2.3
+# A global record unused by any environment must not be included.
+- pypi: https://example.org/unused.whl
+  name: unused
+  version: '1.0'
