@@ -1,6 +1,7 @@
 package types
 
 import (
+	"cmp"
 	"crypto/sha256"
 	"encoding/hex"
 	"slices"
@@ -33,7 +34,7 @@ const (
 	CryptoMethodEncryptedPKCS8SHA256 CryptoIdentityMethod = "encrypted-pkcs8-sha256"
 	// CryptoMethodEncryptedRFC1423SHA256 identifies opaque CryptoKindKey assets with CryptoKeyTypePrivate. The value is the lowercase SHA-256 digest of canonical RFC 1423 encrypted PEM, including its label, headers, and ciphertext, and parameters are empty.
 	CryptoMethodEncryptedRFC1423SHA256 CryptoIdentityMethod = "encrypted-rfc1423-sha256"
-	// CryptoMethodOID identifies CryptoKindAlgorithm assets. The value is a canonical dotted-decimal OID, and parameters are empty or key-size=<bits> / curve=<name> when needed to distinguish the algorithm asset.
+	// CryptoMethodOID identifies CryptoKindAlgorithm assets. The value is a canonical dotted-decimal OID, and parameters are empty or the canonical CryptoAlgorithmParameters encoding, such as key-size=2048, key-size=2048,subgroup-size=256 or curve=P-256, when needed to distinguish the algorithm asset.
 	CryptoMethodOID CryptoIdentityMethod = "oid"
 )
 
@@ -134,6 +135,20 @@ func (a CryptoAssetInfo) Validate() error {
 	return nil
 }
 
+// CompareCryptoAssets orders assets by identity, then by where they were found.
+func CompareCryptoAssets(a, b CryptoAsset) int {
+	return cmp.Or(
+		cmp.Compare(a.Kind, b.Kind),
+		cmp.Compare(a.KeyType, b.KeyType),
+		cmp.Compare(a.Identity.Method, b.Identity.Method),
+		cmp.Compare(a.Identity.Value, b.Identity.Value),
+		cmp.Compare(a.Identity.Parameters, b.Identity.Parameters),
+		cmp.Compare(a.FilePath, b.FilePath),
+		cmp.Compare(a.Layer.DiffID, b.Layer.DiffID),
+		cmp.Compare(a.Format, b.Format),
+	)
+}
+
 // Clone returns a deep copy of the description.
 func (a CryptoAssetInfo) Clone() CryptoAssetInfo {
 	clone := a
@@ -152,6 +167,12 @@ func (a CryptoAssetInfo) Clone() CryptoAssetInfo {
 	}
 	if a.Algorithm != nil {
 		clone.Algorithm = new(*a.Algorithm)
+		if a.Algorithm.ClassicalSecurityLevel != nil {
+			clone.Algorithm.ClassicalSecurityLevel = new(*a.Algorithm.ClassicalSecurityLevel)
+		}
+		if a.Algorithm.NISTQuantumSecurityLevel != nil {
+			clone.Algorithm.NISTQuantumSecurityLevel = new(*a.Algorithm.NISTQuantumSecurityLevel)
+		}
 	}
 	return clone
 }
@@ -186,6 +207,13 @@ func (a CryptoAssetInfo) validateAlgorithm() error {
 	case CryptoPrimitiveUnknown, CryptoPrimitiveSignature, CryptoPrimitivePKE:
 	default:
 		return xerrors.Errorf("unknown algorithm primitive %q", a.Algorithm.Primitive)
+	}
+	if level := a.Algorithm.ClassicalSecurityLevel; level != nil && *level <= 0 {
+		return xerrors.Errorf("classical security level must be positive")
+	}
+	// NIST defines five categories, and the CycloneDX schema allows up to 6.
+	if level := a.Algorithm.NISTQuantumSecurityLevel; level != nil && (*level < 0 || *level > 6) {
+		return xerrors.Errorf("NIST quantum security level must be between 0 and 6")
 	}
 	return nil
 }

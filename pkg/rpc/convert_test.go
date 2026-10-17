@@ -7,11 +7,13 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	dbTypes "github.com/aquasecurity/trivy-db/pkg/types"
 	"github.com/aquasecurity/trivy-db/pkg/vulnsrc/vulnerability"
+	"github.com/aquasecurity/trivy/internal/cryptotest"
 	ftypes "github.com/aquasecurity/trivy/pkg/fanal/types"
 	"github.com/aquasecurity/trivy/pkg/types"
 	"github.com/aquasecurity/trivy/rpc/common"
@@ -639,6 +641,20 @@ func TestConvertFromRPCResults(t *testing.T) {
 								},
 							},
 						},
+						CryptoAssets: []*common.CryptoAsset{
+							{
+								Kind: string(ftypes.CryptoKindAlgorithm),
+								Identity: &common.CryptoIdentity{
+									Method: string(ftypes.CryptoMethodOID),
+									Value:  "1.2.840.113549.1.1.1",
+								},
+								Name: "RSA",
+								Algorithm: &common.CryptoAlgorithm{
+									Primitive: string(ftypes.CryptoPrimitiveUnknown),
+								},
+								FilePath: "/etc/example-algorithm.pem",
+							},
+						},
 					},
 				},
 			},
@@ -688,6 +704,9 @@ func TestConvertFromRPCResults(t *testing.T) {
 							},
 							Custom: customJSON,
 						},
+					},
+					CryptoAssets: []ftypes.CryptoAsset{
+						cryptotest.AlgorithmAsset(),
 					},
 				},
 			},
@@ -1551,6 +1570,183 @@ func TestConvertFromRPCLicenseFiles(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.want, ConvertFromRPCLicenseFiles(tt.licenseFiles))
+		})
+	}
+}
+
+func TestConvertCryptoAssets(t *testing.T) {
+	layer := ftypes.Layer{
+		Digest: "sha256:154ad0735c360b212b167f424d33a62305770a1fcfb6363882f5c436cfbd9812",
+		DiffID: "sha256:b2a1a2d80bf0c747a4f6b0ca6af5eef23f043fcdb1ed4f3a3e750aef2dc68079",
+	}
+	// DSA is identified by several parameters.
+	algorithm := cryptotest.AlgorithmAsset(cryptotest.WithMutate(func(asset *ftypes.CryptoAsset) {
+		asset.Name = "DSA-2048"
+		asset.Identity.Value = "1.2.840.10040.4.1"
+		asset.Identity.Parameters = "key-size=2048,subgroup-size=256"
+		asset.Algorithm.Family = "DSA"
+		asset.Algorithm.Primitive = ftypes.CryptoPrimitiveSignature
+		asset.Layer = layer
+	}))
+
+	tests := []struct {
+		name  string
+		asset ftypes.CryptoAsset
+	}{
+		{
+			name: "certificate",
+			asset: cryptotest.CertificateAsset(cryptotest.WithMutate(func(asset *ftypes.CryptoAsset) {
+				asset.Certificate.NotBefore = time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+				asset.Certificate.NotAfter = time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+				asset.Certificate.KeyUsage = []string{"digitalSignature"}
+				asset.Certificate.ExtendedKeyUsage = []string{"serverAuth"}
+				asset.Certificate.DNSNames = []string{"example.test"}
+				asset.Certificate.EmailAddresses = []string{"admin@example.test"}
+				asset.Certificate.IPAddresses = []string{"192.0.2.1"}
+				asset.Certificate.URIs = []string{"https://example.test"}
+				asset.Certificate.BasicConstraintsValid = true
+				asset.Certificate.IsCA = true
+				asset.Certificate.MaxPathLenZero = true
+				asset.Relationships = []ftypes.CryptoRelationship{
+					{
+						Type:         ftypes.CryptoRelationshipSignedWith,
+						RelatedAsset: cryptotest.AlgorithmDescriptor(),
+					},
+					{
+						Type:         ftypes.CryptoRelationshipContains,
+						RelatedAsset: cryptotest.PublicKeyDescriptor(),
+					},
+				}
+				asset.Layer = layer
+			})),
+		},
+		{
+			name: "public key",
+			asset: cryptotest.PublicKeyAsset(cryptotest.WithMutate(func(asset *ftypes.CryptoAsset) {
+				asset.Key.Curve = "P-256"
+				asset.Relationships = []ftypes.CryptoRelationship{
+					{
+						Type:         ftypes.CryptoRelationshipUsedWith,
+						RelatedAsset: algorithm.Descriptor(),
+					},
+				}
+				asset.Layer = layer
+			})),
+		},
+		{
+			name:  "encrypted private key",
+			asset: cryptotest.EncryptedPrivateKeyAsset(),
+		},
+		{
+			name:  "algorithm",
+			asset: algorithm,
+		},
+		{
+			// A NIST category of zero is a value of its own, unlike an unset level.
+			name: "algorithm with security levels",
+			asset: cryptotest.AlgorithmAsset(cryptotest.WithMutate(func(asset *ftypes.CryptoAsset) {
+				asset.Name = "RSA-2048"
+				asset.Identity.Parameters = "key-size=2048"
+				asset.Algorithm.ClassicalSecurityLevel = new(112)
+				asset.Algorithm.NISTQuantumSecurityLevel = new(0)
+				asset.Layer = layer
+			})),
+		},
+		{
+			name: "algorithm with only a NIST category",
+			asset: cryptotest.AlgorithmAsset(cryptotest.WithMutate(func(asset *ftypes.CryptoAsset) {
+				asset.Name = "ML-DSA-65"
+				asset.Identity.Value = "2.16.840.1.101.3.4.3.18"
+				asset.Algorithm.Family = "ML-DSA"
+				asset.Algorithm.Primitive = ftypes.CryptoPrimitiveSignature
+				asset.Algorithm.NISTQuantumSecurityLevel = new(3)
+				asset.Layer = layer
+			})),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.NoError(t, tt.asset.Validate())
+			assets := []ftypes.CryptoAsset{tt.asset}
+
+			// The assets travel through the wire encoding, which drops a zero that an unset
+			// field cannot be told apart from.
+			var received []*common.CryptoAsset
+			for _, sent := range ConvertToRPCCryptoAssets(assets) {
+				wire, err := proto.Marshal(sent)
+				require.NoError(t, err)
+				var asset common.CryptoAsset
+				require.NoError(t, proto.Unmarshal(wire, &asset))
+				received = append(received, &asset)
+			}
+			assert.Equal(t, assets, ConvertFromRPCCryptoAssets(received))
+		})
+	}
+}
+
+func TestConvertFromRPCCryptoAssets(t *testing.T) {
+	tests := []struct {
+		name   string
+		assets []*common.CryptoAsset
+		want   []ftypes.CryptoAsset
+	}{
+		{
+			name: "empty asset",
+			assets: []*common.CryptoAsset{
+				{},
+			},
+			want: []ftypes.CryptoAsset{
+				{},
+			},
+		},
+		{
+			name: "invalid relationship target",
+			assets: []*common.CryptoAsset{
+				{
+					Kind: string(ftypes.CryptoKindAlgorithm),
+					Identity: &common.CryptoIdentity{
+						Method: string(ftypes.CryptoMethodOID),
+						Value:  "1.2.840.113549.1.1.1",
+					},
+					Algorithm: &common.CryptoAlgorithm{
+						Primitive: string(ftypes.CryptoPrimitiveUnknown),
+					},
+					Relationships: []*common.CryptoRelationship{
+						{
+							Type: string(ftypes.CryptoRelationshipUsedWith),
+							RelatedAsset: &common.CryptoDescriptor{
+								Kind:    string(ftypes.CryptoKindKey),
+								KeyType: string(ftypes.CryptoKeyTypePublic),
+								Identity: &common.CryptoIdentity{
+									Method: string(ftypes.CryptoMethodSPKISHA256),
+									Value:  "not-a-digest",
+								},
+							},
+						},
+					},
+				},
+			},
+			want: []ftypes.CryptoAsset{
+				{
+					CryptoAssetInfo: ftypes.CryptoAssetInfo{
+						Kind: ftypes.CryptoKindAlgorithm,
+						Identity: ftypes.CryptoIdentity{
+							Method: ftypes.CryptoMethodOID,
+							Value:  "1.2.840.113549.1.1.1",
+						},
+						Algorithm: &ftypes.CryptoAlgorithm{
+							Primitive: ftypes.CryptoPrimitiveUnknown,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, ConvertFromRPCCryptoAssets(tt.assets))
 		})
 	}
 }

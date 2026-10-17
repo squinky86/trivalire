@@ -14,7 +14,10 @@ import (
 	"encoding/pem"
 	"errors"
 	"iter"
+	"math/big"
+	"slices"
 
+	"github.com/aquasecurity/trivy/pkg/crypto"
 	ftypes "github.com/aquasecurity/trivy/pkg/fanal/types"
 	"github.com/aquasecurity/trivy/pkg/log"
 	"github.com/aquasecurity/trivy/pkg/set"
@@ -59,6 +62,9 @@ type object struct {
 	certificate certificate
 	// publicKey contains a public key or the public projection of a private key.
 	publicKey any
+	// rawPublicKey contains the SubjectPublicKeyInfo DER of a public key whose algorithm
+	// crypto/x509 does not decode into a supported key.
+	rawPublicKey []byte
 	// encrypted contains the canonical form an encrypted private-key container is identified by.
 	encrypted []byte
 	// encryption identifies the encrypted private-key container format.
@@ -73,6 +79,33 @@ type encryptedPrivateKeyInfo struct {
 	Algorithm     pkix.AlgorithmIdentifier
 	EncryptedData []byte
 }
+
+// pkcs1PrivateKey is an RSA private key in PKCS#1, as defined in RFC 8017.
+type pkcs1PrivateKey struct {
+	Version          int
+	N                *big.Int
+	E                int
+	D, P, Q          *big.Int
+	Dp               *big.Int               `asn1:"optional"`
+	Dq               *big.Int               `asn1:"optional"`
+	Qinv             *big.Int               `asn1:"optional"`
+	AdditionalPrimes []pkcs1AdditionalPrime `asn1:"optional,omitempty"`
+}
+
+// pkcs1AdditionalPrime is a prime of a multi-prime RSA private key, with its CRT values.
+type pkcs1AdditionalPrime struct {
+	Prime, Exp, Coeff *big.Int
+}
+
+// pkcs8PrivateKey is a private key in PKCS#8, as defined in RFC 5208, without its
+// optional attributes.
+type pkcs8PrivateKey struct {
+	Version    int
+	Algo       pkix.AlgorithmIdentifier
+	PrivateKey []byte
+}
+
+var oidRSAEncryption = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 1, 1}
 
 var (
 	errNotCryptographic  = errors.New("not cryptographic")
@@ -100,7 +133,7 @@ func Parse(ctx context.Context, filePath string, content []byte) ([]ftypes.Crypt
 	var assets []ftypes.CryptoAsset
 	seen := set.New[assetKey]()
 	for obj := range parse(ctx, content) {
-		described, err := objectToAssets(ctx, obj)
+		described, err := objectToAssets(obj)
 		if err != nil {
 			return nil, err
 		}
@@ -224,29 +257,13 @@ func parsePEMObject(label string, der []byte) (object, error) {
 	case "CERTIFICATE":
 		return certificateObject(der)
 	case "PRIVATE KEY":
-		privateKey, err := stdx509.ParsePKCS8PrivateKey(der)
-		if err != nil {
-			return object{}, errMalformedCrypto
-		}
-		return privateKeyToObject(privateKey, ftypes.CryptoKeyFormatPKCS8)
+		return pkcs8PrivateKeyObject(der)
 	case "RSA PRIVATE KEY":
-		privateKey, err := stdx509.ParsePKCS1PrivateKey(der)
-		if err != nil {
-			return object{}, errMalformedCrypto
-		}
-		return privateKeyToObject(privateKey, ftypes.CryptoKeyFormatPKCS1)
+		return rsaPrivateKeyObject(der, ftypes.CryptoKeyFormatPKCS1)
 	case "EC PRIVATE KEY":
-		privateKey, err := stdx509.ParseECPrivateKey(der)
-		if err != nil {
-			return object{}, errMalformedCrypto
-		}
-		return privateKeyToObject(privateKey, ftypes.CryptoKeyFormatSEC1)
+		return privateKeyObject(der, ftypes.CryptoKeyFormatSEC1, stdx509.ParseECPrivateKey)
 	case "PUBLIC KEY":
-		publicKey, err := stdx509.ParsePKIXPublicKey(der)
-		if err != nil {
-			return object{}, errMalformedCrypto
-		}
-		return publicKeyToObject(publicKey)
+		return publicKeyObject(der)
 	case "ENCRYPTED PRIVATE KEY":
 		obj, ok := parseEncryptedPKCS8(der)
 		if !ok {
@@ -277,26 +294,80 @@ func parsePEMObject(label string, der []byte) (object, error) {
 	}
 }
 
+// privateKeyObject parses a private key and projects it to its public key.
+func privateKeyObject[K any](der []byte, format ftypes.CryptoKeyFormat, parseKey func([]byte) (K, error)) (object, error) {
+	privateKey, err := parseKey(der)
+	if err != nil {
+		return object{}, errMalformedCrypto
+	}
+	return privateKeyToObject(privateKey, format)
+}
+
+// pkcs8PrivateKeyObject parses a private key in PKCS#8 and projects it to its public key.
+func pkcs8PrivateKeyObject(der []byte) (object, error) {
+	var key pkcs8PrivateKey
+	if _, err := asn1.Unmarshal(der, &key); err == nil && key.Algo.Algorithm.Equal(oidRSAEncryption) {
+		return rsaPrivateKeyObject(key.PrivateKey, ftypes.CryptoKeyFormatPKCS8)
+	}
+	return privateKeyObject(der, ftypes.CryptoKeyFormatPKCS8, stdx509.ParsePKCS8PrivateKey)
+}
+
+// rsaPrivateKeyObject reads an RSA private key in PKCS#1 and projects it to its public key.
+// It checks the structure of the key but not its math, because crypto/x509 validates a key
+// with arithmetic whose cost grows with the size of its values, and a crafted key picks
+// them freely.
+func rsaPrivateKeyObject(der []byte, format ftypes.CryptoKeyFormat) (object, error) {
+	var key pkcs1PrivateKey
+	rest, err := asn1.Unmarshal(der, &key)
+	if err != nil || len(rest) > 0 {
+		return object{}, errMalformedCrypto
+	}
+	if key.Version < 0 || key.Version > 1 || key.E <= 0 {
+		return object{}, errMalformedCrypto
+	}
+	for _, v := range []*big.Int{key.N, key.D, key.P, key.Q} {
+		if v.Sign() <= 0 {
+			return object{}, errMalformedCrypto
+		}
+	}
+	for _, v := range []*big.Int{key.Dp, key.Dq, key.Qinv} {
+		if v != nil && v.Sign() <= 0 {
+			return object{}, errMalformedCrypto
+		}
+	}
+	for _, p := range key.AdditionalPrimes {
+		if p.Prime.Sign() <= 0 {
+			return object{}, errMalformedCrypto
+		}
+	}
+
+	return object{
+		kind:      objectPrivateKey,
+		publicKey: &rsa.PublicKey{N: key.N, E: key.E},
+		keyFormat: format,
+	}, nil
+}
+
 func parseDERObject(der []byte) (object, error) {
 	// The target ASN.1 DER structures have no common outer discriminator, so try their schema-specific parsers in order.
 	if obj, err := certificateObject(der); err == nil {
 		return obj, nil
 	}
 
-	if privateKey, err := stdx509.ParsePKCS1PrivateKey(der); err == nil {
-		return privateKeyToObject(privateKey, ftypes.CryptoKeyFormatPKCS1)
+	if obj, err := rsaPrivateKeyObject(der, ftypes.CryptoKeyFormatPKCS1); err == nil {
+		return obj, nil
 	}
 
-	if privateKey, err := stdx509.ParsePKCS8PrivateKey(der); err == nil {
-		return privateKeyToObject(privateKey, ftypes.CryptoKeyFormatPKCS8)
+	if obj, err := pkcs8PrivateKeyObject(der); !errors.Is(err, errMalformedCrypto) {
+		return obj, err
 	}
 
 	if privateKey, err := stdx509.ParseECPrivateKey(der); err == nil {
 		return privateKeyToObject(privateKey, ftypes.CryptoKeyFormatSEC1)
 	}
 
-	if publicKey, err := stdx509.ParsePKIXPublicKey(der); err == nil {
-		return publicKeyToObject(publicKey)
+	if obj, err := publicKeyObject(der); err == nil {
+		return obj, nil
 	}
 
 	if obj, ok := parseEncryptedPKCS8(der); ok {
@@ -337,6 +408,14 @@ func certificateObject(der []byte) (object, error) {
 		return object{}, errMalformedCrypto
 	}
 
+	// crypto/x509 checks the encoding only of a key it decodes, and any other key is
+	// described from its encoding later.
+	if !isSupportedPublicKey(parsed.PublicKey) {
+		if _, err := crypto.ParseSubjectPublicKeyInfo(parsed.RawSubjectPublicKeyInfo); err != nil {
+			return object{}, errMalformedCrypto
+		}
+	}
+
 	return object{
 		kind: objectCertificate,
 		certificate: certificate{
@@ -363,14 +442,45 @@ func privateKeyToObject(privateKey any, format ftypes.CryptoKeyFormat) (object, 
 	}, nil
 }
 
-func publicKeyToObject(publicKey any) (object, error) {
-	if !isSupportedPublicKey(publicKey) {
-		return object{}, errUnsupportedCrypto
+// decodedKeyAlgorithms lists the key algorithms crypto/x509 decodes. It mirrors
+// parsePublicKey in crypto/x509 and needs updating when that function learns a new OID.
+var decodedKeyAlgorithms = []asn1.ObjectIdentifier{
+	oidRSAEncryption,
+	{1, 2, 840, 10040, 4, 1},          // DSA
+	{1, 2, 840, 10045, 2, 1},          // EC
+	{1, 3, 101, 110},                  // X25519
+	{1, 3, 101, 112},                  // Ed25519
+	{2, 16, 840, 1, 101, 3, 4, 3, 17}, // ML-DSA-44
+	{2, 16, 840, 1, 101, 3, 4, 3, 18}, // ML-DSA-65
+	{2, 16, 840, 1, 101, 3, 4, 3, 19}, // ML-DSA-87
+}
+
+// publicKeyObject parses a public key in PKIX SubjectPublicKeyInfo. A key crypto/x509 does
+// not decode into a supported key is kept in its encoded form, the same way as in a
+// certificate. A key of an algorithm it decodes is malformed when decoding fails.
+func publicKeyObject(der []byte) (object, error) {
+	publicKey, parseErr := stdx509.ParsePKIXPublicKey(der)
+	if parseErr == nil && isSupportedPublicKey(publicKey) {
+		return object{
+			kind:      objectPublicKey,
+			publicKey: publicKey,
+			keyFormat: ftypes.CryptoKeyFormatPKIX,
+		}, nil
+	}
+
+	oid, err := crypto.ParseSubjectPublicKeyInfo(der)
+	if err != nil {
+		return object{}, errMalformedCrypto
+	}
+	// A key of an algorithm crypto/x509 decodes is malformed only when decoding failed. An
+	// X25519 key decodes into a key that is not supported and is kept in its encoded form.
+	if parseErr != nil && slices.ContainsFunc(decodedKeyAlgorithms, oid.Equal) {
+		return object{}, errMalformedCrypto
 	}
 	return object{
-		kind:      objectPublicKey,
-		publicKey: publicKey,
-		keyFormat: ftypes.CryptoKeyFormatPKIX,
+		kind:         objectPublicKey,
+		rawPublicKey: der,
+		keyFormat:    ftypes.CryptoKeyFormatPKIX,
 	}, nil
 }
 

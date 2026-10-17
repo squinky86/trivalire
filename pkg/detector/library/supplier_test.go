@@ -9,8 +9,10 @@ import (
 	"github.com/aquasecurity/trivy-db/pkg/ecosystem"
 	"github.com/aquasecurity/trivy/pkg/detector/library"
 	"github.com/aquasecurity/trivy/pkg/detector/library/compare"
+	"github.com/aquasecurity/trivy/pkg/detector/library/compare/npm"
 	"github.com/aquasecurity/trivy/pkg/detector/library/compare/pep440"
 
+	_ "github.com/aquasecurity/trivy/pkg/detector/library/echo" // register Echo supplier
 	_ "github.com/aquasecurity/trivy/pkg/detector/library/seal" // register Seal Security supplier
 )
 
@@ -76,13 +78,40 @@ func Test_lookupSupplier(t *testing.T) {
 			wantDefaultComparer: true,
 		},
 		{
-			name:      "non-seal pip package returns no match",
+			name:                "echo pip package returns supplier prefix and pep440 comparer",
+			eco:                 ecosystem.Pip,
+			pkgName:             "requests",
+			pkgVer:              "2.14.2+echo.1",
+			wantMatch:           library.Matched,
+			wantPrefix:          "echo pip::",
+			wantDefaultComparer: false,
+		},
+		{
+			name:                "echo maven package returns supplier prefix and default comparer",
+			eco:                 ecosystem.Maven,
+			pkgName:             "org.apache.commons:commons-lang3",
+			pkgVer:              "3.14.0+echo.1",
+			wantMatch:           library.Matched,
+			wantPrefix:          "echo maven::",
+			wantDefaultComparer: true,
+		},
+		{
+			name:                "echo npm package returns supplier prefix and build-aware comparer",
+			eco:                 ecosystem.Npm,
+			pkgName:             "@babel/traverse",
+			pkgVer:              "7.23.2+echo.1",
+			wantMatch:           library.Matched,
+			wantPrefix:          "echo npm::",
+			wantDefaultComparer: false,
+		},
+		{
+			name:      "non-supplier pip package returns no match",
 			eco:       ecosystem.Pip,
 			pkgName:   "requests",
 			wantMatch: library.NoMatch,
 		},
 		{
-			name:      "non-seal npm package returns no match",
+			name:      "non-supplier npm package returns no match",
 			eco:       ecosystem.Npm,
 			pkgName:   "ejs",
 			wantMatch: library.NoMatch,
@@ -102,8 +131,13 @@ func Test_lookupSupplier(t *testing.T) {
 				// When no custom comparer is needed, the default should be returned unchanged.
 				assert.Equal(t, defaultComparer, comparer)
 			} else {
-				// For seal pip, a custom pep440 comparer with AllowLocalSpecifier should be returned.
-				assert.IsType(t, pep440.Comparer{}, comparer)
+				assert.NotEqual(t, defaultComparer, comparer)
+				switch tt.eco {
+				case ecosystem.Pip:
+					assert.Equal(t, pep440.NewComparer(pep440.AllowLocalSpecifier()), comparer)
+				case ecosystem.Npm:
+					assert.Equal(t, npm.NewComparer(npm.WithBuildMetadata()), comparer)
+				}
 			}
 		})
 	}

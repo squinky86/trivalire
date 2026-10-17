@@ -35,7 +35,7 @@ func (v *CSAF) Filter(result *types.Result, bom *core.BOM) {
 
 func (v *CSAF) NotAffected(vuln types.DetectedVulnerability, product, subProduct *core.Component) (types.ModifiedFinding, bool) {
 	found, ok := lo.Find(v.advisory.Vulnerabilities, func(item *csaf.Vulnerability) bool {
-		return string(*item.CVE) == vuln.VulnerabilityID
+		return item.CVE != nil && string(*item.CVE) == vuln.VulnerabilityID
 	})
 	if !ok {
 		return types.ModifiedFinding{}, false
@@ -91,6 +91,13 @@ func (v *CSAF) matchProduct(productID csaf.ProductID, product *core.Component) b
 
 func (v *CSAF) matchRelationship(fullProductID csaf.ProductID, product, subProduct *core.Component) (
 	csaf.RelationshipCategory, bool) {
+
+	// A relationship describes a sub-component within a product, so it can only match
+	// when a sub-component is given. subProduct is nil when a component is evaluated
+	// on its own (see reachRoot).
+	if subProduct == nil {
+		return "", false
+	}
 
 	for category, relationships := range v.inspectProductRelationships(fullProductID) {
 		for _, rel := range relationships {
