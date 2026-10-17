@@ -13,6 +13,7 @@ import (
 	"golang.org/x/xerrors"
 
 	dbTypes "github.com/aquasecurity/trivy-db/pkg/types"
+	"github.com/aquasecurity/trivy/pkg/crypto"
 	ospkgDetector "github.com/aquasecurity/trivy/pkg/detector/ospkg"
 	"github.com/aquasecurity/trivy/pkg/extension"
 	"github.com/aquasecurity/trivy/pkg/fanal/analyzer"
@@ -119,6 +120,7 @@ func (s Service) Scan(ctx context.Context, targetName, artifactKey string, blobK
 		Misconfigurations: mergeMisconfigurations(targetName, detail),
 		Secrets:           mergeSecrets(targetName, detail),
 		Licenses:          detail.Licenses,
+		CryptoAssets:      detail.CryptoAssets,
 		CustomResources:   detail.CustomResources,
 	}
 
@@ -160,6 +162,17 @@ func (s Service) ScanTarget(ctx context.Context, target types.ScanTarget, option
 
 	// Scan licenses
 	results = append(results, s.scanLicenses(target, options)...)
+
+	if options.Scanners.Enabled(types.CryptoScanner) && len(target.CryptoAssets) != 0 {
+		// The security levels are assessed here rather than during analysis, so that a change
+		// to their basis applies to cached assets without analyzing them again.
+		crypto.AssessStrength(target.CryptoAssets)
+		results = append(results, types.Result{
+			Target:       target.Name,
+			Class:        types.ClassCrypto,
+			CryptoAssets: target.CryptoAssets,
+		})
+	}
 
 	// For WASM plugins and custom analyzers
 	if len(target.CustomResources) != 0 {
