@@ -65,6 +65,14 @@ const (
 	CryptoEncodingDER CryptoEncoding = "DER"
 )
 
+// CryptoKeystoreType identifies the keystore that source cryptographic data is stored in.
+type CryptoKeystoreType string
+
+const (
+	// CryptoKeystorePKCS12 identifies a PKCS#12 keystore.
+	CryptoKeystorePKCS12 CryptoKeystoreType = "PKCS#12"
+)
+
 // CryptoAssetInfo describes a format-neutral cryptographic asset. Its identity is derived
 // from the material itself, so material found in several places has one description.
 type CryptoAssetInfo struct {
@@ -138,11 +146,7 @@ func (a CryptoAssetInfo) Validate() error {
 // CompareCryptoAssets orders assets by identity, then by where they were found.
 func CompareCryptoAssets(a, b CryptoAsset) int {
 	return cmp.Or(
-		cmp.Compare(a.Kind, b.Kind),
-		cmp.Compare(a.KeyType, b.KeyType),
-		cmp.Compare(a.Identity.Method, b.Identity.Method),
-		cmp.Compare(a.Identity.Value, b.Identity.Value),
-		cmp.Compare(a.Identity.Parameters, b.Identity.Parameters),
+		a.Descriptor().Compare(b.Descriptor()),
 		cmp.Compare(a.FilePath, b.FilePath),
 		cmp.Compare(a.Layer.DiffID, b.Layer.DiffID),
 		cmp.Compare(a.Format, b.Format),
@@ -221,12 +225,16 @@ func (a CryptoAssetInfo) validateAlgorithm() error {
 // CryptoAsset is a described asset together with the file it was found in and the
 // container it was stored in there.
 type CryptoAsset struct {
+	// AssetID identifies the asset within a report.
+	AssetID string `json:",omitempty"`
 	CryptoAssetInfo
 	FilePath string `json:",omitempty"`
 	// Format is empty for a key with no container of its own, such as the key of a certificate.
 	Format CryptoKeyFormat `json:",omitempty"`
 	// Encoding is empty for a derived asset, such as an algorithm.
 	Encoding CryptoEncoding `json:",omitempty"`
+	// Keystore is empty for material outside a keystore.
+	Keystore CryptoKeystoreType `json:",omitempty"`
 	// Layer is empty for a target that has no layers.
 	Layer Layer `json:",omitzero"`
 }
@@ -253,6 +261,15 @@ func (a CryptoAsset) Validate() error {
 	}
 	if a.Encoding != "" && a.Kind == CryptoKindAlgorithm {
 		return xerrors.Errorf("asset kind %q has no encoded form", a.Kind)
+	}
+
+	switch a.Keystore {
+	case "", CryptoKeystorePKCS12:
+	default:
+		return xerrors.Errorf("unknown keystore type %q", a.Keystore)
+	}
+	if a.Keystore != "" && a.Encoding != CryptoEncodingDER {
+		return xerrors.Errorf("keystore %q requires %s encoding", a.Keystore, CryptoEncodingDER)
 	}
 	return nil
 }
